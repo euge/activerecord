@@ -69,6 +69,7 @@ module ActiveRecord
   autoload :Timestamp, 'active_record/timestamp'
   autoload :Transactions, 'active_record/transactions'
   autoload :Validations, 'active_record/validations'
+  autoload :IdentityMap, 'active_record/identity_map'
 
   module Locking
     autoload :Optimistic, 'active_record/locking/optimistic'

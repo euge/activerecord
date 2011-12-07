@@ -236,7 +236,12 @@ module ActiveRecord
           return nil unless defined?(@loaded)
 
           if !loaded? and (!@owner.new_record? || foreign_key_present)
-            @target = find_target
+            if IdentityMap.enabled?
+              @target = IdentityMap.get(@reflection.klass, @owner[@reflection.primary_key_name])
+            end
+
+            @target ||= find_target
+
           end
 
           @loaded = true

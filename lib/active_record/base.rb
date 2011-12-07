@@ -1455,6 +1455,14 @@ module ActiveRecord #:nodoc:
         object.is_a?(self)
       end
 
+      def symbolized_base_class
+        @symbolized_base_class ||= base_class.to_s.to_sym
+      end
+
+      def symbolized_sti_name
+        @symbolized_sti_name ||= sti_name.present? ? sti_name.to_sym : symbolized_base_class
+      end
+
       # Returns the base AR subclass that this class descends from. If A
       # extends AR::Base, A.base_class will return A. If B descends from A
       # through some arbitrarily deep hierarchy, B.base_class will return A.
@@ -1574,6 +1582,10 @@ module ActiveRecord #:nodoc:
         end
 
         def find_one(id, options)
+          if IdentityMap.enabled? && options.keys.none? && result = IdentityMap.get(self, id)
+            return result
+          end
+
           conditions = " AND (#{sanitize_sql(options[:conditions])})" if options[:conditions]
           options.update :conditions => "#{quoted_table_name}.#{connection.quote_column_name(primary_key)} = #{quote_value(id,columns_hash[primary_key])}#{conditions}"
 
@@ -1614,50 +1626,42 @@ module ActiveRecord #:nodoc:
           end
         end
 
-        # Finder methods must instantiate through this method to work with the
-        # single-table inheritance model that makes it possible to create
-        # objects of different types from the same table.
+        def find_sti_class(type_name)
+          if type_name.blank? || !columns_hash.include?(inheritance_column)
+            self
+          else
+            begin
+              compute_type(type_name)
+            rescue NameError
+              raise SubclassNotFound,
+                "The single-table inheritance mechanism failed to locate the subclass: '#{type_name}'. " +
+                "This error is raised because the column '#{inheritance_column}' is reserved for storing the class in case of inheritance. " +
+                "Please rename this column if you didn't intend it to be used for storing the inheritance class " +
+                "or overwrite #{self.to_s}.inheritance_column to use another column for that information."
+            end
+          end
+        end
+
         def instantiate(record)
-          object =
-            if subclass_name = record[inheritance_column]
-              # No type given.
-              if subclass_name.empty?
-                allocate
+          sti_class = find_sti_class(record[inheritance_column])
+          record_id = sti_class.primary_key && record[sti_class.primary_key]
 
-              else
-                # Ignore type if no column is present since it was probably
-                # pulled in from a sloppy join.
-                unless columns_hash.include?(inheritance_column)
-                  allocate
-
-                else
-                  begin
-                    compute_type(subclass_name).allocate
-                  rescue NameError
-                    raise SubclassNotFound,
-                      "The single-table inheritance mechanism failed to locate the subclass: '#{record[inheritance_column]}'. " +
-                      "This error is raised because the column '#{inheritance_column}' is reserved for storing the class in case of inheritance. " +
-                      "Please rename this column if you didn't intend it to be used for storing the inheritance class " +
-                      "or overwrite #{self.to_s}.inheritance_column to use another column for that information."
-                  end
-                end
-              end
-            else
-              allocate
+          if ActiveRecord::IdentityMap.enabled? && record_id
+            if (column = sti_class.columns_hash[sti_class.primary_key]) && column.number?
+              record_id = record_id.to_i
             end
 
-          object.instance_variable_set("@attributes", record)
-          object.instance_variable_set("@attributes_cache", Hash.new)
+            if !instance = IdentityMap.get(sti_class, record_id)
+              instance = sti_class.allocate.init_with('attributes' => record)
+              IdentityMap.add(instance)
+            end
 
-          if object.respond_to_without_attributes?(:after_find)
-            object.send(:callback, :after_find)
+            instance
+          else
+            instance = sti_class.allocate.init_with('attributes' => record)
           end
 
-          if object.respond_to_without_attributes?(:after_initialize)
-            object.send(:callback, :after_initialize)
-          end
-
-          object
+          instance
         end
 
         # Nest the type name in the same module as this class.
@@ -2426,6 +2430,17 @@ module ActiveRecord #:nodoc:
     end
 
     public
+
+      def init_with(coder)
+        @attributes = coder['attributes']
+        @attributes_cache = Hash.new
+
+        callback(:after_find) if respond_to_without_attributes?(:after_find)
+        callback(:after_initialize) if respond_to_without_attributes?(:after_initialize)
+
+        self
+      end
+
       # New objects can be instantiated as either empty (pass no construction parameter) or pre-set with
       # attributes but not yet saved (pass a hash with key names matching the associated table column names).
       # In both instances, valid attribute keys are determined by the column names of the associated table --
@@ -3152,6 +3167,7 @@ module ActiveRecord #:nodoc:
     include Dirty
     include Callbacks, Observing, Timestamp
     include Associations, AssociationPreload, NamedScope
+    include IdentityMap
 
     # AutosaveAssociation needs to be included before Transactions, because we want
     # #save_with_autosave_associations to be wrapped inside a transaction.
