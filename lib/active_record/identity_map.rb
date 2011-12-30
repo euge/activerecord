@@ -45,7 +45,6 @@ module ActiveRecord
       end
 
       def add(record)
-        record.class.connection.log_info("#{record.class} (id: #{record.id})", "IdentityMap Add", 0.0)
         repository[record.class.symbolized_sti_name][record.id] = record
       end
 

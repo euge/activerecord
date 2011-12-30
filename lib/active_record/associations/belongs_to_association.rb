@@ -41,6 +41,10 @@ module ActiveRecord
       
       private
         def find_target
+          if IdentityMap.enabled? && (p = @owner[@reflection.primary_key_name]) && (t = IdentityMap.get(@reflection.klass, p))
+            return t
+          end
+          
           find_method = if @reflection.options[:primary_key]
                           "find_by_#{@reflection.options[:primary_key]}"
                         else

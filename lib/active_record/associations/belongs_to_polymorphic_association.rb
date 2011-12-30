@@ -24,6 +24,10 @@ module ActiveRecord
       private
         def find_target
           return nil if association_class.nil?
+          
+          if IdentityMap.enabled? && (p = @owner[@reflection.primary_key_name]) && (t = IdentityMap.get(association_class, p))
+            return t
+          end
 
           if @reflection.options[:conditions]
             association_class.find(

@@ -1653,7 +1653,10 @@ module ActiveRecord #:nodoc:
 
             if !instance = IdentityMap.get(sti_class, record_id)
               instance = sti_class.allocate.init_with('attributes' => record)
-              IdentityMap.add(instance)
+              # only add to IdentityMap if all of the columns are present, this prevents situations
+              # where a partially filled record is returned from the IdentityMap when a user wanted
+              # a full record
+              IdentityMap.add(instance) if record.length == sti_class.columns_hash.length
             end
 
             instance

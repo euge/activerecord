@@ -236,12 +236,7 @@ module ActiveRecord
           return nil unless defined?(@loaded)
 
           if !loaded? and (!@owner.new_record? || foreign_key_present)
-            if IdentityMap.enabled?
-              @target = IdentityMap.get(@reflection.klass, @owner[@reflection.primary_key_name])
-            end
-
-            @target ||= find_target
-
+            @target = find_target
           end
 
           @loaded = true
@@ -249,7 +244,6 @@ module ActiveRecord
         rescue ActiveRecord::RecordNotFound
           reset
         end
-
         # Can be overwritten by associations that might have the foreign key
         # available for an association without having the object itself (and
         # still being a new record). Currently, only +belongs_to+ presents
